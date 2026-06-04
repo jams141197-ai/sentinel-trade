@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sentinel-trade"
+version = "0.1.0"
+description = "A broker-agnostic safety + observability layer you wrap around a trading bot you already wrote."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "Sentinel contributors" }]
+keywords = ["trading", "algotrading", "observability", "risk", "monitoring", "reconciliation", "ccxt", "ibkr"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Financial and Insurance Industry",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Office/Business :: Financial :: Investment",
+]
+dependencies = []  # the core has ZERO required dependencies — that's the whole pitch.
+
+[project.optional-dependencies]
+dashboard = ["streamlit>=1.30"]
+ccxt = ["ccxt>=4.0"]
+ibkr = ["ib_async>=1.0"]
+dev = ["pytest>=7.0"]
+
+[project.urls]
+Homepage = "https://github.com/your-handle/sentinel-trade"
+Issues = "https://github.com/your-handle/sentinel-trade/issues"
+
+[tool.setuptools.packages.find]
+include = ["sentinel*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
