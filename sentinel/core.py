@@ -8,6 +8,7 @@ from .alerts import AlertRouter, Console
 from .caps import CapGate
 from .config import Caps
 from .events import Event, EventStore
+from .fills import FillReconciler
 from .reconcile import Divergence, Reconciler
 from .slippage import SlippageTracker
 from .state import AccountState
@@ -35,6 +36,7 @@ class Monitor:
         self.events = EventStore(db_path)
         self.alerts = AlertRouter(alerts if alerts is not None else [Console()])
         self.slippage = slippage or SlippageTracker()
+        self.fills = FillReconciler()
         self.halt_on_drift = halt_on_drift
         self.broker_positions_fn: Optional[Callable[[], dict]] = None
         self.reconciler = Reconciler(
@@ -88,6 +90,17 @@ class Monitor:
             self.emit("slippage", symbol=symbol, recent_bps=round(avg, 1))
             self.alert("Slippage degrading", f"{symbol}: recent avg {avg:.0f} bps", "warning")
         return realized
+
+    def record_paper_fill(self, symbol, side, qty, paper_price, live_price=None, bid=None, ask=None, strategy=""):
+        """Record a paper-vs-live fill for execution-degradation reconciliation. Returns the FillRecord."""
+        rec = self.fills.record(symbol, side, qty, paper_price, live_price=live_price, bid=bid, ask=ask, strategy=strategy)
+        self.emit("paper_fill", symbol=symbol, side=side, qty=rec.qty, paper=rec.paper_price,
+                  live=rec.live_price, slippage_bps=rec.slippage_bps, cost=rec.cost)
+        return rec
+
+    def fill_report(self) -> dict:
+        """Paper-vs-live execution-degradation report — the headline number for how much fills slip live."""
+        return self.fills.report()
 
     def check_order(self, symbol, side, qty, price) -> None:
         """Raises CapBreached to block. Call BEFORE submitting an order."""
@@ -146,6 +159,7 @@ class Monitor:
         self.alert("Resumed", "trading re-enabled", "info")
 
     def status(self) -> dict:
+        fills = self.fills.report()
         return {
             "bot": self.bot,
             "halted": self.cap_gate.halted,
@@ -154,6 +168,8 @@ class Monitor:
             "open_positions": self.state.open_count(),
             "positions": self.state.net_positions(),
             "recent_slippage_bps": round(self.slippage.recent_avg(), 1),
+            "fill_degradation_pct": fills["degradation_pct"],
+            "fill_headline": fills["headline"],
         }
 
     def stop(self) -> None:
