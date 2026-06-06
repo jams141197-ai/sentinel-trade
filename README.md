@@ -2,18 +2,27 @@
 
 **A broker-agnostic safety + observability layer you wrap around a trading bot you already wrote.**
 
-> Sentry tells you the bot crashed. Sentinel tells you the bot is *running but lying to you* — and kills it before the next order.
+> Your paper results are lying to you. Sentinel tells you *by how much* — before you risk a dollar.
 
-Your bot didn't crash. It's been bleeding money for four hours and your infra monitoring says everything's green. Sentinel catches the **live-only** failures that actually blow up retail bots — and it does the one thing Datadog, Sentry, and your homemade Telegram notifier can't: it **hard-stops the order path before the next order**, not after an alert.
+Paper and backtest fills are optimistic: instant, mid-price, no spread. Live fills cross the spread and slip — and that gap is the **#1 reason a bot that looked great in paper bleeds money live.** Almost nobody measures it before going live. Sentinel does, in three lines:
 
+```python
+sentinel.record_paper_fill("ETH/USDT", "buy", qty=2, paper_price=2500, bid=2499.5, ask=2501.0)
+print(sentinel.fill_report()["headline"])
+# Across 1,240 fills, live execution ran ~14 bps worse than paper
+# — 1.8% of traded value ($3,140) your backtest never showed.
+```
+
+That's the headline feature. Then, once you *are* live, Sentinel catches the other **live-only** failures that blow up retail bots — and does the one thing Datadog, Sentry, and your homemade Telegram notifier can't: it **hard-stops the order path before the next order**, not after an alert.
+
+- 📉 **Paper-vs-live fill reconciliation** — the one number for how much your fills degrade live, plus a per-strategy breakdown. The part backtesters and paper accounts structurally can't show you.
 - 🛑 **Hard-stop cap enforcement** — daily-loss, position-size, order-size, open-position, and deployed-% caps, checked *synchronously inside your order function*. A breach raises before the order is sent. Fail-closed.
 - 🫥 **Silent-death heartbeat** — "no fills in N minutes during market hours" while the process is alive and logs are writing. The failure mode generic monitoring is structurally blind to.
 - ⚠️ **Position-vs-broker reconciliation** — diffs your bot's view against the broker's truth and halts on divergence: ghost positions, orphan positions, quantity mismatches.
-- 📉 **Fill-quality / slippage** tracking, live P&L attribution, and an event log + local dashboard.
 - 🔌 **Broker-agnostic** — one ~10-line callback. ccxt and IBKR examples included; Alpaca / Polymarket / Kalshi are trivial.
 - 🪶 **Zero required dependencies** in the core. It's a library, not a framework to migrate into.
 
-> **Status: alpha.** A safety layer that sits in your order path is only as good as its tests — so read `tests/` (49 of them, covering the cap gate, PnL math, reconciliation, and the end-to-end flow) before you trust it with a live account. Default behavior is **HALT, never auto-liquidate**.
+> **Status: alpha.** A safety layer that sits in your order path is only as good as its tests — so read `tests/` (55 of them, covering fill reconciliation, the cap gate, PnL math, position reconciliation, and the end-to-end flow) before you trust it with a live account. Default behavior is **HALT, never auto-liquidate**.
 
 ## Install
 
@@ -22,7 +31,25 @@ pip install sentinel-trade
 # extras: pip install "sentinel-trade[dashboard,ccxt,ibkr]"
 ```
 
-## Quickstart
+## Measure fill degradation (before you go live)
+
+The headline feature needs no broker connection — just the fills your paper run or backtest already produced. For each, log what you *assumed* and what live would *really* get (the actual price, or just the bid/ask — Sentinel models the crossing fill):
+
+```python
+import sentinel
+sentinel.init(bot="eth-meanrev")
+
+sentinel.record_paper_fill("ETH/USDT", "buy",  qty=2, paper_price=2500, bid=2499.5, ask=2501.0, strategy="meanrev")
+sentinel.record_paper_fill("ETH/USDT", "sell", qty=2, paper_price=2520, live_price=2517.8, strategy="meanrev")
+
+report = sentinel.fill_report()
+print(report["headline"])      # the one number, e.g. "...live ran ~9 bps worse than paper..."
+print(report["by_strategy"])   # which strategies actually survive real execution
+```
+
+`by_strategy` is where the truth hides: the strategy that's 95% in paper but bleeds 40 bps live is the one quietly killing you.
+
+## Quickstart (going live)
 
 ```python
 import sentinel
@@ -62,6 +89,8 @@ Don't like decorators? Call the same logic explicitly:
 ```python
 sentinel.check_order("ETH/USDT", "buy", qty=2, price=2500)   # raises CapBreached to block
 sentinel.record_fill("ETH/USDT", "buy", qty=2, fill_price=2501, expected_price=2500)
+sentinel.record_paper_fill("ETH/USDT", "buy", qty=2, paper_price=2500, bid=2499.5, ask=2501)  # fill degradation
+report = sentinel.fill_report()                              # the headline number + by_strategy
 divergences = sentinel.sync_positions({"ETH/USDT": 2.0})     # one-shot reconcile
 ```
 
@@ -93,7 +122,7 @@ streamlit run dashboard/app.py
 
 - Not a trading framework — it wraps the bot you already wrote; it doesn't replace it.
 - Not auto-liquidation — it HALTS (blocks new orders) by default. Closing positions is your call.
-- Not a backtester — it's for **live** ops. Use vectorbt / quantstats for research.
+- Not a backtester — it's for **live** ops (but it *will* show you what your backtest's optimistic fills hid). Use vectorbt / quantstats for research.
 - v1 ships ccxt + IBKR adapters; Alpaca / Polymarket / Kalshi are fast-follows.
 
 ## Development

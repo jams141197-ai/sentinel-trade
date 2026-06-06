@@ -30,6 +30,7 @@ from .alerts import AlertRouter, Console, Discord, Email, Telegram
 from .config import Caps
 from .core import Monitor
 from .exceptions import CapBreached, SentinelError
+from .fills import FillReconciler
 from .reconcile import Divergence, diff_positions
 from .slippage import slippage_bps
 
@@ -37,9 +38,9 @@ __version__ = "0.1.0"
 
 __all__ = [
     "init", "get_monitor", "Caps", "Console", "Telegram", "Discord", "Email",
-    "CapBreached", "SentinelError", "Divergence", "diff_positions", "slippage_bps",
+    "CapBreached", "SentinelError", "Divergence", "diff_positions", "slippage_bps", "FillReconciler",
     "order", "fill", "position", "broker_positions",
-    "watch_reconciliation", "record_fill", "sync_positions", "check_order",
+    "watch_reconciliation", "record_fill", "record_paper_fill", "fill_report", "sync_positions", "check_order",
     "halt", "resume", "status", "stop",
 ]
 
@@ -87,6 +88,18 @@ def watch_reconciliation(interval_seconds: float = 30.0) -> None:
 
 def record_fill(symbol, side, qty, fill_price, expected_price=None) -> float:
     return get_monitor().record_fill(symbol, side, qty, fill_price, expected_price)
+
+
+def record_paper_fill(symbol, side, qty, paper_price, live_price=None, bid=None, ask=None, strategy=""):
+    """Record a paper-vs-live fill so Sentinel can report how much your fills degrade live."""
+    return get_monitor().record_paper_fill(
+        symbol, side, qty, paper_price, live_price=live_price, bid=bid, ask=ask, strategy=strategy
+    )
+
+
+def fill_report() -> dict:
+    """The paper-vs-live execution-degradation report (the headline number)."""
+    return get_monitor().fill_report()
 
 
 def sync_positions(broker_state) -> List[Divergence]:
